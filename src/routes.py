@@ -5,6 +5,9 @@ from schemas import MessageSchema, RecipientSchema, PaginationSchema, BulkDelete
 from marshmallow import ValidationError
 from database import db
 
+MAX_PAGE_SIZE = 100
+DEFAULT_PAGE_SIZE = 10
+
 bp = Blueprint("messages", __name__)
 
 message_schema = MessageSchema()
@@ -85,8 +88,8 @@ def delete_multiple():
 @bp.route("/messages", methods=["GET"])
 def fetch_messages():
     try:
-        recipient_data = recipient_schema.load(request.args)
-        pagination_data = pagination_schema.load(request.args)
+        recipient_data = recipient_schema.load(request.args, unknown="exclude")
+        pagination_data = pagination_schema.load(request.args, unknown="exclude")
     except ValidationError as err:
         return jsonify({"error": err.messages}), 400
 
@@ -94,14 +97,24 @@ def fetch_messages():
     start = pagination_data["start"] 
     stop = pagination_data["stop"]
 
+    if start is None and stop is None:
+        start = 0
+        stop = DEFAULT_PAGE_SIZE - 1
 
-    query = Message.query.filter_by(recipient=recipient).order_by(Message.timestamp)
+    # 🔍 Validate pagination
     if start is not None and stop is not None:
-        query = query.slice(start, stop)
-    elif start is not None:
+        if stop < start:
+            return jsonify({"error": {"stop": "'stop' must be greater than or equal to 'start'"}}), 400
+        if (stop - start + 1) > MAX_PAGE_SIZE:
+            return jsonify({"error": {"stop": f"Page size exceeds max of {MAX_PAGE_SIZE}"}}), 400
+
+    # 🔁 Build query
+    query = Message.query.filter_by(recipient=recipient).order_by(Message.timestamp)
+
+    if start is not None:
         query = query.offset(start)
-    elif stop is not None:
-        query = query.limit(stop)
+    if stop is not None and start is not None:
+        query = query.limit(stop - start + 1)
 
     messages = query.all()
     return jsonify(messages_schema.dump(messages))

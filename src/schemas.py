@@ -11,8 +11,8 @@ class RecipientSchema(Schema):
     recipient = fields.Email(required=True)
 
 class PaginationSchema(Schema):
-    start = fields.Int(missing=None, validate=validate.Range(min=0))
-    stop = fields.Int(missing=None, validate=validate.Range(min=0))
+    start = fields.Int(load_default=None, validate=validate.Range(min=0))
+    stop = fields.Int(load_default=None, validate=validate.Range(min=0))
 
 class BulkDeleteSchema(Schema):
-    ids = fields.List(fields.Str(), required=True)
+    ids = fields.List(fields.Str(), required=True, validate=validate.Length(min=1))
