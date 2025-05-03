@@ -4,6 +4,7 @@ from models import Message
 from schemas import MessageSchema, RecipientSchema, PaginationSchema, BulkDeleteSchema
 from marshmallow import ValidationError
 from database import db
+from werkzeug.exceptions import BadRequest
 
 MAX_PAGE_SIZE = 100
 DEFAULT_PAGE_SIZE = 10
@@ -19,13 +20,17 @@ bulk_delete_schema = BulkDeleteSchema()
 
 @bp.route("/messages", methods=["POST"])
 def submit_message():
-    json_data = request.get_json()
+    try:
+        json_data = request.get_json(force=True)
+    except BadRequest:
+        return jsonify({"error": "Invalid or malformed JSON"}), 400
+    
     if not json_data:
         return jsonify({"error": "No input data provided"}), 400
 
     try:
         validated_data = message_schema.load(json_data)
-    except Exception as err:
+    except ValidationError as err:
         return jsonify({"error": err.messages}), 400
 
     message = Message(
@@ -70,7 +75,11 @@ def delete_message(message_id):
 
 @bp.route("/messages", methods=["DELETE"])
 def delete_multiple():
-    json_data = request.get_json()
+    try:
+        json_data = request.get_json(force=True)
+    except BadRequest:
+        return jsonify({"error": "Invalid or malformed JSON"}), 400
+
     if not json_data:
         return jsonify({"error": "No input data provided"}), 400
 
@@ -100,21 +109,30 @@ def fetch_messages():
     if start is None and stop is None:
         start = 0
         stop = DEFAULT_PAGE_SIZE - 1
+    elif start is None:
+        start = 0
+    elif stop is None:
+        stop = start + DEFAULT_PAGE_SIZE - 1
 
-    # 🔍 Validate pagination
-    if start is not None and stop is not None:
-        if stop < start:
-            return jsonify({"error": {"stop": "'stop' must be greater than or equal to 'start'"}}), 400
-        if (stop - start + 1) > MAX_PAGE_SIZE:
-            return jsonify({"error": {"stop": f"Page size exceeds max of {MAX_PAGE_SIZE}"}}), 400
+    page_size = stop - start + 1
+    if stop < start:
+        return jsonify({"error": {"stop": "'stop' must be greater than or equal to 'start'"}}), 400
+    if (page_size) > MAX_PAGE_SIZE:
+        return jsonify({"error": {"stop": f"Page size exceeds max of {MAX_PAGE_SIZE}"}}), 400
 
-    # 🔁 Build query
     query = Message.query.filter_by(recipient=recipient).order_by(Message.timestamp)
+    messages = query.offset(start).limit(page_size).all()
 
-    if start is not None:
-        query = query.offset(start)
-    if stop is not None and start is not None:
-        query = query.limit(stop - start + 1)
-
-    messages = query.all()
     return jsonify(messages_schema.dump(messages))
+
+@bp.app_errorhandler(404)
+def handle_404(e):
+    return jsonify({"error": "Endpoint not found"}), 404
+
+@bp.app_errorhandler(405)
+def handle_405(e):
+    return jsonify({"error": "Method not allowed"}), 405
+
+@bp.app_errorhandler(500)
+def handle_500(e):
+    return jsonify({"error": "Internal server error"}), 500
