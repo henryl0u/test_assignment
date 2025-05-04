@@ -5,6 +5,7 @@ from schemas import MessageSchema, RecipientSchema, PaginationSchema, BulkDelete
 from marshmallow import ValidationError
 from database import db
 from werkzeug.exceptions import BadRequest
+from sqlalchemy.exc import SQLAlchemyError
 
 MAX_PAGE_SIZE = 100
 DEFAULT_PAGE_SIZE = 10
@@ -39,9 +40,13 @@ def submit_message():
         content=validated_data["content"],
     )
 
-    db.session.add(message)
-    db.session.commit()
-    return jsonify(message_schema.dump(message)), 201
+    try:
+        db.session.add(message)
+        db.session.commit()
+        return jsonify(message_schema.dump(message)), 201
+    except SQLAlchemyError:
+        db.session.rollback()
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @bp.route("/messages/unread", methods=["GET"])
@@ -55,8 +60,13 @@ def fetch_unread():
     unread_messages = Message.query.filter_by(recipient=recipient, read=False).all()
     for msg in unread_messages:
         msg.read = True
-    db.session.commit()
-    return jsonify(messages_schema.dump(unread_messages))
+
+    try:
+        db.session.commit()
+        return jsonify(messages_schema.dump(unread_messages))
+    except SQLAlchemyError:
+        db.session.rollback()
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @bp.route("/messages/<message_id>", methods=["DELETE"])
@@ -68,9 +78,13 @@ def delete_message(message_id):
     if not message:
         return jsonify({"error": "Message not found"}), 404
 
-    db.session.delete(message)
-    db.session.commit()
-    return "", 204
+    try:
+        db.session.delete(message)
+        db.session.commit()
+        return "", 204
+    except SQLAlchemyError:
+        db.session.rollback()
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @bp.route("/messages", methods=["DELETE"])
@@ -89,9 +103,14 @@ def delete_multiple():
         return jsonify({"error": err.messages}), 400
 
     ids = validated_data["ids"]
-    Message.query.filter(Message.id.in_(ids)).delete(synchronize_session="fetch")
-    db.session.commit()
-    return "", 204
+    
+    try:
+        Message.query.filter(Message.id.in_(ids)).delete(synchronize_session="fetch")
+        db.session.commit()
+        return "", 204
+    except SQLAlchemyError:
+        db.session.rollback()
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @bp.route("/messages", methods=["GET"])
@@ -120,7 +139,7 @@ def fetch_messages():
     if (page_size) > MAX_PAGE_SIZE:
         return jsonify({"error": {"stop": f"Page size exceeds max of {MAX_PAGE_SIZE}"}}), 400
 
-    query = Message.query.filter_by(recipient=recipient).order_by(Message.timestamp)
+    query = Message.query.filter_by(recipient=recipient).order_by(Message.timestamp.desc())
     messages = query.offset(start).limit(page_size).all()
 
     return jsonify(messages_schema.dump(messages))

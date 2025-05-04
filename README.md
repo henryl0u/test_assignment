@@ -73,7 +73,7 @@ curl -X POST http://127.0.0.1:5000/messages \
 Fetch messages for a recipient, ordered by time. Supports optional pagination.
 
 ```bash
-curl -X GET "http://127.0.0.1:5000/messages recipient=test@example.com"
+curl -X GET "http://127.0.0.1:5000/messages?recipient=test@example.com"
 ```
 
 - `start` (optional): index to start from
@@ -86,7 +86,7 @@ curl -X GET "http://127.0.0.1:5000/messages recipient=test@example.com"
 Fetch all unread messages for a recipient and mark them as read.
 
 ```bash
-curl -X GET "http://127.0.0.1:5000/messages/unread recipient=test@example.com"
+curl -X GET "http://127.0.0.1:5000/messages/unread?recipient=test@example.com"
 ```
 
 ---
